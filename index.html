@@ -47,109 +47,100 @@
     </div>
 
     <script>
-        /* --- CRYPTO LOGIC --- */
-        async function deriveKey(pin) {
-            const encoder = new TextEncoder();
-            const baseKey = await crypto.subtle.importKey(
-                "raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]
-            );
-            const salt = encoder.encode("trmnl-static-salt"); 
-            return crypto.subtle.deriveKey(
-                { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
-                baseKey,
-                { name: "AES-GCM", length: 256 },
-                false,
-                ["encrypt", "decrypt"]
-            );
-        }
+     /* --- CRYPTO LOGIC (Unchanged) --- */
+async function deriveKey(pin) {
+    const encoder = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey(
+        "raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]
+    );
+    const salt = encoder.encode("trmnl-static-salt"); 
+    return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
 
-        async function encryptData(text, pin) {
-            const key = await deriveKey(pin);
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            const encoded = new TextEncoder().encode(text);
-            const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
-            return {
-                iv: Array.from(iv),
-                data: Array.from(new Uint8Array(ciphertext))
-            };
-        }
+async function encryptData(text, pin) {
+    const key = await deriveKey(pin);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(text);
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+    return {
+        iv: Array.from(iv),
+        data: Array.from(new Uint8Array(ciphertext))
+    };
+}
 
-        async function decryptData(encrypted, pin) {
-            const key = await deriveKey(pin);
-            const iv = new Uint8Array(encrypted.iv);
-            const data = new Uint8Array(encrypted.data);
-            const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
-            return new TextDecoder().decode(decrypted);
-        }
+async function decryptData(encrypted, pin) {
+    const key = await deriveKey(pin);
+    const iv = new Uint8Array(encrypted.iv);
+    const data = new Uint8Array(encrypted.data);
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+    return new TextDecoder().decode(decrypted);
+}
 
-        /* --- APP LOGIC --- */
-        const PROXY_URL = 'https://api.allorigins.win/raw?url=';
-        const TRMNL_API = 'https://usetrmnl.com/api/display/';
+/* --- UPDATED APP LOGIC --- */
+const PROXY_URL = 'https://api.allorigins.win/raw?url='; // AllOrigins Raw Proxy
+const TRMNL_API = 'https://usetrmnl.com/api/display/'; 
 
-        const setupSection = document.getElementById('setup-section');
-        const mainSection = document.getElementById('main-section');
-        const status = document.getElementById('status');
+const setupSection = document.getElementById('setup-section');
+const mainSection = document.getElementById('main-section');
+const status = document.getElementById('status');
 
-        // Check if token exists
-        if (!localStorage.getItem('encryptedToken')) {
-            setupSection.classList.remove('hidden');
-            mainSection.classList.add('hidden');
-        }
+if (!localStorage.getItem('encryptedToken')) {
+    setupSection.classList.remove('hidden');
+    mainSection.classList.add('hidden');
+}
 
-        // Save and Encrypt
-        document.getElementById('save-btn').onclick = async () => {
-            const token = document.getElementById('token-input').value;
-            const pin = document.getElementById('pin-input').value;
-            if(!token || !pin) return alert("Please fill in both fields.");
-            
-            try {
-                const encrypted = await encryptData(token, pin);
-                localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
-                alert("Token saved securely!");
-                location.reload();
-            } catch (e) { alert("Encryption failed."); }
-        };
+document.getElementById('save-btn').onclick = async () => {
+    const token = document.getElementById('token-input').value;
+    const pin = document.getElementById('pin-input').value;
+    if(!token || !pin) return alert("Please fill in both fields.");
+    try {
+        const encrypted = await encryptData(token, pin);
+        localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
+        location.reload();
+    } catch (e) { alert("Encryption failed."); }
+};
 
-        // Decrypt and Fetch
-        document.getElementById('fetch-btn').onclick = async () => {
-            const pin = document.getElementById('unlock-pin').value;
-            const encryptedDataStr = localStorage.getItem('encryptedToken');
-            
-            if(!pin) return alert("Enter your PIN");
-            
-            try {
-                status.innerText = "Decrypting...";
-                const encryptedData = JSON.parse(encryptedDataStr);
-                const token = await decryptData(encryptedData, pin);
-                
-                status.innerText = "Fetching Image...";
-                const finalUrl = `${TRMNL_API}${token}`;
-                
-                const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
-                if (!response.ok) throw new Error('Image not found or API error');
-                
-                const blob = await response.blob();
-                const objectURL = URL.createObjectURL(blob);
-                document.getElementById('display-area').innerHTML = `<img src="${objectURL}">`;
-            } catch (e) {
-                console.error(e);
-                status.innerText = "Error: Invalid PIN or Connection Issue";
-                status.style.color = "red";
-            }
-        };
+document.getElementById('fetch-btn').onclick = async () => {
+    const pin = document.getElementById('unlock-pin').value;
+    const encryptedDataStr = localStorage.getItem('encryptedToken');
+    if(!pin) return alert("Enter your PIN");
+    
+    try {
+        status.innerText = "Decrypting...";
+        const encryptedData = JSON.parse(encryptedDataStr);
+        const token = await decryptData(encryptedData, pin);
+        
+        status.innerText = "Fetching via AllOrigins...";
+        const finalUrl = `${TRMNL_API}${token}`; 
+        
+        // Use encodeURIComponent to wrap the TRMNL URL for the proxy
+        const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
+        
+        if (!response.ok) throw new Error(`Proxy Error: ${response.status}`);
+        
+        const blob = await response.blob();
+        const objectURL = URL.createObjectURL(blob);
+        document.getElementById('display-area').innerHTML = `<img src="${objectURL}">`;
+        status.innerText = "Success!";
+    } catch (e) {
+        console.error(e);
+        status.innerText = "Error: Invalid PIN or Proxy Failure";
+        status.style.color = "red";
+    }
+};
 
-        // Reset
-        document.getElementById('settings-toggle').onclick = () => {
-            if(confirm("Clear saved token and reset?")) {
-                localStorage.removeItem('encryptedToken');
-                location.reload();
-            }
-        };
-
-        // Register Service Worker for PWA
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js').catch(console.error);
-        }
+document.getElementById('settings-toggle').onclick = () => {
+    if(confirm("Clear saved token?")) {
+        localStorage.removeItem('encryptedToken');
+        location.reload();
+    }
+};
     </script>
 </body>
 </html>
