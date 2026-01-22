@@ -47,138 +47,117 @@
     </div>
 
     <script>
-     /* --- CRYPTO LOGIC (Unchanged) --- */
-async function deriveKey(pin) {
-    const encoder = new TextEncoder();
-    const baseKey = await crypto.subtle.importKey(
-        "raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]
-    );
-    const salt = encoder.encode("trmnl-static-salt"); 
-    return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
-        baseKey,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-    );
-}
+  <script>
+    /* --- SECURE CRYPTO LOGIC --- */
+    async function deriveKey(pin) {
+        const encoder = new TextEncoder();
+        const baseKey = await crypto.subtle.importKey(
+            "raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]
+        );
+        const salt = encoder.encode("trmnl-static-salt"); 
+        return crypto.subtle.deriveKey(
+            { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+            baseKey,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"]
+        );
+    }
 
-async function encryptData(text, pin) {
-    const key = await deriveKey(pin);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(text);
-    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
-    return {
-        iv: Array.from(iv),
-        data: Array.from(new Uint8Array(ciphertext))
-    };
-}
+    async function encryptData(text, pin) {
+        const key = await deriveKey(pin);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(text);
+        const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+        return {
+            iv: Array.from(iv),
+            data: Array.from(new Uint8Array(ciphertext))
+        };
+    }
 
-async function decryptData(encrypted, pin) {
-    const key = await deriveKey(pin);
-    const iv = new Uint8Array(encrypted.iv);
-    const data = new Uint8Array(encrypted.data);
-    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
-    return new TextDecoder().decode(decrypted);
-}
+    async function decryptData(encrypted, pin) {
+        const key = await deriveKey(pin);
+        const iv = new Uint8Array(encrypted.iv);
+        const data = new Uint8Array(encrypted.data);
+        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+        return new TextDecoder().decode(decrypted);
+    }
 
-/* --- UPDATED APP LOGIC --- */
-const PROXY_URL = 'https://api.allorigins.win/raw?url='; // AllOrigins Raw Proxy
-const TRMNL_API = 'https://usetrmnl.com/api/display/'; 
+    /* --- APP INITIALIZATION --- */
+    (async () => {
+        const PROXY_URL = 'https://api.allorigins.win/raw?url='; 
+        const TRMNL_API = 'https://usetrmnl.com/api/display/'; 
 
-const setupSection = document.getElementById('setup-section');
-const mainSection = document.getElementById('main-section');
-const status = document.getElementById('status');
+        const setupSection = document.getElementById('setup-section');
+        const mainSection = document.getElementById('main-section');
+        const status = document.getElementById('status');
 
-if (!localStorage.getItem('encryptedToken')) {
-    setupSection.classList.remove('hidden');
-    mainSection.classList.add('hidden');
-}
-
-document.getElementById('save-btn').onclick = async () => {
-    const token = document.getElementById('token-input').value;
-    const pin = document.getElementById('pin-input').value;
-    if(!token || !pin) return alert("Please fill in both fields.");
-    try {
-        const encrypted = await encryptData(token, pin);
-        localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
-        location.reload();
-    } catch (e) { alert("Encryption failed."); }
-};
-
-document.getElementById('fetch-btn').onclick = async () => {
-    const pin = document.getElementById('unlock-pin').value;
-    const encryptedDataStr = localStorage.getItem('encryptedToken');
-    if(!pin) return alert("Enter your PIN");
-    
-    try {
-        status.innerText = "Decrypting...";
-        const encryptedData = JSON.parse(encryptedDataStr);
-        const token = await decryptData(encryptedData, pin);
-        
-        status.innerText = "Requesting image (please wait)...";
-        
-        // Add a timestamp to bypass any cached 408 or 500 errors
-        const cacheBuster = `?t=${Date.now()}`;
-        const finalUrl = `${TRMNL_API}${token}${cacheBuster}`; 
-        
-        // Increase the timeout visibility by letting the user know we are still trying
-        const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
-        
-        if (response.status === 408) {
-            throw new Error("Proxy Timed Out. TRMNL took too long to respond. Please try again in a few seconds.");
-        }
-        
-        if (!response.ok) throw new Error(`Server Error: ${response.status}`);
-        
-        const blob = await response.blob();
-        
-        // Verify we actually got an image and not a text error page
-        if (blob.type.indexOf('image') === -1) {
-            throw new Error("Received invalid data format (not an image).");
+        // Check for existing token
+        if (!localStorage.getItem('encryptedToken')) {
+            setupSection.classList.remove('hidden');
+            mainSection.classList.add('hidden');
         }
 
-        const objectURL = URL.createObjectURL(blob);
-        document.getElementById('display-area').innerHTML = `<img src="${objectURL}">`;
-        status.innerText = "Success!";
-        status.style.color = "green";
-    } catch (e) {
-        console.error(e);
-        status.innerText = e.message;
-        status.style.color = "red";
-    }
-};
-    
-    try {
-        status.innerText = "Decrypting...";
-        const encryptedData = JSON.parse(encryptedDataStr);
-        const token = await decryptData(encryptedData, pin);
-        
-        status.innerText = "Fetching via AllOrigins...";
-        const finalUrl = `${TRMNL_API}${token}`; 
-        
-        // Use encodeURIComponent to wrap the TRMNL URL for the proxy
-        const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
-        
-        if (!response.ok) throw new Error(`Proxy Error: ${response.status}`);
-        
-        const blob = await response.blob();
-        const objectURL = URL.createObjectURL(blob);
-        document.getElementById('display-area').innerHTML = `<img src="${objectURL}">`;
-        status.innerText = "Success!";
-    } catch (e) {
-        console.error(e);
-        status.innerText = "Error: Invalid PIN or Proxy Failure";
-        status.style.color = "red";
-    }
-};
+        // SAVE BUTTON LOGIC
+        document.getElementById('save-btn').onclick = async () => {
+            const token = document.getElementById('token-input').value;
+            const pin = document.getElementById('pin-input').value;
+            if(!token || !pin) return alert("Please fill in both fields.");
+            try {
+                const encrypted = await encryptData(token, pin);
+                localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
+                location.reload();
+            } catch (e) { alert("Encryption failed: " + e.message); }
+        };
 
-document.getElementById('settings-toggle').onclick = () => {
-    if(confirm("Clear saved token?")) {
-        localStorage.removeItem('encryptedToken');
-        location.reload();
-    }
-};
+        // FETCH BUTTON LOGIC
+        document.getElementById('fetch-btn').onclick = async () => {
+            const pin = document.getElementById('unlock-pin').value;
+            const encryptedDataStr = localStorage.getItem('encryptedToken');
+            if(!pin) return alert("Enter your PIN");
+            
+            try {
+                status.innerText = "Decrypting...";
+                const encryptedData = JSON.parse(encryptedDataStr);
+                const token = await decryptData(encryptedData, pin);
+                
+                status.innerText = "Fetching Image...";
+                const cacheBuster = `?t=${Date.now()}`;
+                const finalUrl = `${TRMNL_API}${token}${cacheBuster}`; 
+                
+                const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
+                if (!response.ok) throw new Error(`Proxy/Server Error: ${response.status}`);
+                
+                const blob = await response.blob();
+                const objectURL = URL.createObjectURL(blob);
+                document.getElementById('display-area').innerHTML = `<img src="${objectURL}">`;
+                status.innerText = "Updated: " + new Date().toLocaleTimeString();
+                status.style.color = "green";
+            } catch (e) {
+                console.error(e);
+                status.innerText = "Error: " + e.message;
+                status.style.color = "red";
+            }
+        };
+
+        // RESET LOGIC
+        document.getElementById('settings-toggle').onclick = () => {
+            if(confirm("Clear saved token?")) {
+                localStorage.removeItem('encryptedToken');
+                location.reload();
+            }
+        };
+
+        // Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            try {
+                await navigator.serviceWorker.register('sw.js');
+            } catch (err) {
+                console.log("SW registration failed", err);
+            }
+        }
+    })();
+</script>
     </script>
 </body>
 </html>
