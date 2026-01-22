@@ -3,63 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRMNL Image Downloader</title>
+    <title>TRMNL Secure Viewer</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f4f4f4; }
-        #display-area { margin-top: 20px; border: 2px solid #333; min-width: 300px; min-height: 200px; background: white; }
-        img { max-width: 100%; height: auto; display: block; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #000; color: #fff; border: none; border-radius: 5px; }
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f4; }
+        #display-area { margin: 20px auto; border: 2px solid #333; max-width: 600px; min-height: 300px; background: white; }
+        img { width: 100%; height: auto; }
+        .controls { display: flex; flex-direction: column; gap: 10px; max-width: 300px; margin: 0 auto; }
+        input { padding: 8px; }
+        button { padding: 10px; cursor: pointer; background: #000; color: #fff; border: none; border-radius: 4px; }
+        .hidden { display: none; }
+        #settings-toggle { margin-top: 20px; font-size: 0.8em; color: #666; cursor: pointer; }
     </style>
 </head>
 <body>
 
     <h1>TRMNL Viewer</h1>
-    <button id="fetch-btn">Download Latest Image</button>
     
-    <div id="display-area">
-        <p id="status">No image loaded</p>
+    <div id="setup-section" class="hidden">
+        <h3>Secure Setup</h3>
+        <div class="controls">
+            <input type="text" id="token-input" placeholder="TRMNL Access Token">
+            <input type="password" id="pin-input" placeholder="Encryption PIN">
+            <button id="save-btn">Encrypt & Save Token</button>
+        </div>
     </div>
 
+    <div id="main-section">
+        <div class="controls">
+            <input type="password" id="unlock-pin" placeholder="Enter PIN to Fetch">
+            <button id="fetch-btn">Download Image</button>
+        </div>
+        <div id="display-area"><p id="status">Enter PIN and press Download</p></div>
+    </div>
+
+    <p id="settings-toggle">Reset/Update Token</p>
+
+    <script src="crypto-logic.js"></script>
     <script>
-// Register Service Worker for PWA functionality
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
-}
+        if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
 
-const btn = document.getElementById('fetch-btn');
-const displayArea = document.getElementById('display-area');
-const status = document.getElementById('status');
+        const PROXY_URL = 'https://corsproxy.io/?';
+        const TRMNL_API = 'https://usetrmnl.com/api/display/'; // Note: Append ID if needed
 
-// 1. Your actual TRMNL URL
-const TRMNL_URL = 'https://usetrmnl.com/api/display/YOUR_ID_HERE';
+        // UI Logic
+        const setupSection = document.getElementById('setup-section');
+        const mainSection = document.getElementById('main-section');
+        const status = document.getElementById('status');
 
-// 2. The CORS Proxy URL
-const PROXY_URL = 'https://corsproxy.io/?';
+        // Check if token exists in local storage
+        if (!localStorage.getItem('encryptedToken')) {
+            setupSection.classList.remove('hidden');
+            mainSection.classList.add('hidden');
+        }
 
-btn.addEventListener('click', async () => {
-    status.innerText = "Downloading via Proxy...";
-    
-    try {
-        // We concatenate the proxy URL with the encoded TRMNL URL
-        const response = await fetch(PROXY_URL + encodeURIComponent(TRMNL_URL));
-        
-        if (!response.ok) throw new Error('Could not reach TRMNL via proxy');
-        
-        const blob = await response.blob();
-        const objectURL = URL.createObjectURL(blob);
-        
-        // Clean up the display and show the image
-        displayArea.innerHTML = `<img src="${objectURL}" alt="TRMNL Screen Content">`;
-        
-        // Optional: Revoke the object URL after some time to save memory
-        // setTimeout(() => URL.revokeObjectURL(objectURL), 10000);
-        
-    } catch (error) {
-        console.error("Fetch error:", error);
-        status.innerText = "Error: " + error.message;
-    }
-});
+        document.getElementById('save-btn').onclick = async () => {
+            const token = document.getElementById('token-input').value;
+            const pin = document.getElementById('pin-input').value;
+            if(!token || !pin) return alert("Fill both fields");
+            
+            const encrypted = await encryptData(token, pin);
+            localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
+            location.reload();
+        };
+
+        document.getElementById('fetch-btn').onclick = async () => {
+            const pin = document.getElementById('unlock-pin').value;
+            const encryptedData = JSON.parse(localStorage.getItem('encryptedToken'));
+            
+            try {
+                status.innerText = "Decrypting...";
+                const token = await decryptData(encryptedData, pin);
+                
+                status.innerText = "Fetching via Proxy...";
+                // Update URL construction based on your TRMNL endpoint requirements
+                const finalUrl = `${TRMNL_API}${token}`; 
+                
+                const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
+                if (!response.ok) throw new Error('Fetch failed');
+                
+                const blob = await response.blob();
+                const objectURL = URL.createObjectURL(blob);
+                document.getElementById('display-area').innerHTML = `<img src="${objectURL}">`;
+            } catch (e) {
+                status.innerText = "Error: Invalid PIN or Network Issue";
+            }
+        };
+
+        document.getElementById('settings-toggle').onclick = () => {
+            localStorage.removeItem('encryptedToken');
+            location.reload();
+        };
     </script>
 </body>
 </html>
