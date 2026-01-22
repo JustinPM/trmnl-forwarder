@@ -116,6 +116,44 @@ document.getElementById('fetch-btn').onclick = async () => {
         const encryptedData = JSON.parse(encryptedDataStr);
         const token = await decryptData(encryptedData, pin);
         
+        status.innerText = "Requesting image (please wait)...";
+        
+        // Add a timestamp to bypass any cached 408 or 500 errors
+        const cacheBuster = `?t=${Date.now()}`;
+        const finalUrl = `${TRMNL_API}${token}${cacheBuster}`; 
+        
+        // Increase the timeout visibility by letting the user know we are still trying
+        const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
+        
+        if (response.status === 408) {
+            throw new Error("Proxy Timed Out. TRMNL took too long to respond. Please try again in a few seconds.");
+        }
+        
+        if (!response.ok) throw new Error(`Server Error: ${response.status}`);
+        
+        const blob = await response.blob();
+        
+        // Verify we actually got an image and not a text error page
+        if (blob.type.indexOf('image') === -1) {
+            throw new Error("Received invalid data format (not an image).");
+        }
+
+        const objectURL = URL.createObjectURL(blob);
+        document.getElementById('display-area').innerHTML = `<img src="${objectURL}">`;
+        status.innerText = "Success!";
+        status.style.color = "green";
+    } catch (e) {
+        console.error(e);
+        status.innerText = e.message;
+        status.style.color = "red";
+    }
+};
+    
+    try {
+        status.innerText = "Decrypting...";
+        const encryptedData = JSON.parse(encryptedDataStr);
+        const token = await decryptData(encryptedData, pin);
+        
         status.innerText = "Fetching via AllOrigins...";
         const finalUrl = `${TRMNL_API}${token}`; 
         
