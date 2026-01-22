@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRMNL Image Downloader</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f4f4f4; }
+        #display-area { margin-top: 20px; border: 2px solid #333; min-width: 300px; min-height: 200px; background: white; }
+        img { max-width: 100%; height: auto; display: block; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #000; color: #fff; border: none; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <h1>TRMNL Viewer</h1>
+    <button id="fetch-btn">Download Latest Image</button>
+    
+    <div id="display-area">
+        <p id="status">No image loaded</p>
+    </div>
+
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+
+        const btn = document.getElementById('fetch-btn');
+        const displayArea = document.getElementById('display-area');
+        const status = document.getElementById('status');
+
+        // Replace with your actual TRMNL URL or API endpoint
+        const TRMNL_URL = 'https://usetrmnl.com/api/display/YOUR_ID_HERE';
+
+        btn.addEventListener('click', async () => {
+            status.innerText = "Downloading...";
+            try {
+                const response = await fetch(TRMNL_URL);
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                const blob = await response.blob();
+                const objectURL = URL.createObjectURL(blob);
+                
+                displayArea.innerHTML = `<img src="${objectURL}" alt="TRMNL Screen Content">`;
+            } catch (error) {
+                status.innerText = "Error: " + error.message;
+            }
+        });
+    </script>
+</body>
+</html>
