@@ -83,8 +83,8 @@
         }
 
         /* --- APP LOGIC --- */
-        const PROXY_URL = 'https://cors-anywhere.com/';
-        const TRMNL_API = 'https://usetrmnl.com/api/display/'; 
+        const PROXY_URL = 'https://api.allorigins.win/raw?url=';
+        const TRMNL_API = 'https://usetrmnl.com/api/display/';
 
         const setupSection = document.getElementById('setup-section');
         const mainSection = document.getElementById('main-section');
@@ -123,7 +123,7 @@
                 const token = await decryptData(encryptedData, pin);
                 
                 status.innerText = "Fetching Image...";
-                const finalUrl = `${TRMNL_API}${token}`; 
+                const finalUrl = `${TRMNL_API}${token}`;
                 
                 const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
                 if (!response.ok) throw new Error('Image not found or API error');
