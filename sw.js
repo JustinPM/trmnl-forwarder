@@ -1,14 +1,25 @@
-const CACHE_NAME = 'trmnl-v3';
-const ASSETS = ['./', './index.html', './manifest.json'];
+const CACHE_NAME = 'trmnl-v4';
+const ASSETS = [
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png'
+];
 
+// Install: Cache the app shell
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+  );
 });
 
+// Fetch: Network-first for images, Cache-first for UI
 self.addEventListener('fetch', (event) => {
-  // IMPORTANT: Do not intercept proxy requests or TRMNL API calls
-  if (event.request.url.includes('api.allorigins.win') || event.request.url.includes('usetrmnl.com')) {
-    return; // Let the browser handle these normally
+  const url = event.request.url;
+
+  // Bypass cache for TRMNL images and Proxies
+  if (url.includes('usetrmnl.com') || url.includes('corsproxy.io')) {
+    return; // Let the browser fetch directly
   }
 
   event.respondWith(
