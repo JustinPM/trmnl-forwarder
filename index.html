@@ -3,19 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRMNL Viewer</title>
+    <title>TRMNL Secure Viewer</title>
+    <link rel="manifest" href="manifest.json">
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; background: #111; color: #eee; }
+        body { font-family: -apple-system, system-ui, sans-serif; text-align: center; padding: 20px; background: #111; color: #eee; }
         .container { max-width: 500px; margin: 0 auto; background: #222; padding: 20px; border-radius: 12px; border: 1px solid #333; }
         #display-area { margin-top: 20px; border-radius: 8px; overflow: hidden; background: #000; min-height: 250px; display: flex; align-items: center; justify-content: center; border: 1px solid #444; }
-        img { width: 100%; height: auto; display: block; image-rendering: pixelated; }
+        img { width: 100%; height: auto; display: block; image-rendering: auto; }
         .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 15px; }
-        input { padding: 12px; border: 1px solid #444; border-radius: 6px; font-size: 16px; background: #333; color: white; }
-        button { padding: 12px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 6px; font-weight: bold; }
+        input { padding: 14px; border: 1px solid #444; border-radius: 8px; font-size: 16px; background: #333; color: white; outline: none; }
+        input:focus { border-color: #666; }
+        button { padding: 14px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; }
+        button:active { background: #ccc; }
         .hidden { display: none; }
-        #settings-toggle { margin-top: 25px; font-size: 11px; color: #666; text-decoration: underline; cursor: pointer; }
-        #status { font-size: 13px; margin-top: 10px; color: #aaa; }
-        .build-tag { font-size: 10px; color: #444; margin-top: 40px; text-transform: uppercase; letter-spacing: 1px; }
+        #settings-toggle { margin-top: 25px; font-size: 11px; color: #666; text-decoration: underline; cursor: pointer; text-transform: uppercase; }
+        #status { font-size: 13px; margin-top: 10px; color: #aaa; min-height: 1.2em; }
+        .build-tag { font-size: 10px; color: #444; margin-top: 40px; text-transform: uppercase; letter-spacing: 2px; }
     </style>
 </head>
 <body>
@@ -24,35 +27,35 @@
         <h1>TRMNL</h1>
         
         <div id="setup-section" class="hidden">
-            <p>Enter your TRMNL Access Token</p>
+            <p>Paste your TRMNL Display Token</p>
             <div class="controls">
-                <input type="text" id="token-input" placeholder="Access Token">
-                <input type="password" id="pin-input" placeholder="Set Security PIN">
+                <input type="text" id="token-input" placeholder="e.g. uFIo5fZ...">
+                <input type="password" id="pin-input" placeholder="Create a Security PIN">
                 <button id="save-btn">Save Encrypted</button>
             </div>
         </div>
 
         <div id="main-section">
             <div id="display-area">
-                <p id="placeholder-text">Enter PIN to fetch dashboard</p>
+                <p id="placeholder-text" style="color:#555">Locked</p>
             </div>
             <div class="controls">
                 <input type="password" id="unlock-pin" placeholder="Enter PIN">
-                <button id="fetch-btn">Refresh Dashboard</button>
+                <button id="fetch-btn">Update Display</button>
             </div>
-            <div id="status">Ready</div>
+            <div id="status">Build Ready</div>
         </div>
 
         <p id="settings-toggle">Reset App</p>
-        <div class="build-tag">Build: 2024.05.21-V3</div>
+        <div class="build-tag">Build: 2026.01.22-FINAL-CORS</div>
     </div>
 
     <script>
-        // --- CRYPTO HELPERS ---
+        // --- CRYPTO ENGINE ---
         async function deriveKey(pin) {
             const encoder = new TextEncoder();
             const baseKey = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]);
-            const salt = encoder.encode("trmnl-salt-v3"); 
+            const salt = encoder.encode("trmnl-v4-salt"); 
             return crypto.subtle.deriveKey(
                 { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
                 baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
@@ -75,9 +78,9 @@
             return new TextDecoder().decode(decrypted);
         }
 
-        // --- MAIN APP ---
+        // --- APP ENGINE ---
         (async () => {
-            const PROXY_URL = 'https://api.allorigins.win/raw?url='; 
+            const PROXY_URL = 'https://corsproxy.io/?url='; 
             const TRMNL_API = 'https://usetrmnl.com/api/display/'; 
 
             const setupSection = document.getElementById('setup-section');
@@ -91,9 +94,9 @@
             }
 
             document.getElementById('save-btn').onclick = async () => {
-                const token = document.getElementById('token-input').value;
+                const token = document.getElementById('token-input').value.trim();
                 const pin = document.getElementById('pin-input').value;
-                if(!token || !pin) return alert("Fill all fields");
+                if(!token || !pin) return alert("All fields required");
                 try {
                     const encrypted = await encryptData(token, pin);
                     localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
@@ -104,38 +107,47 @@
             document.getElementById('fetch-btn').onclick = async () => {
                 const pin = document.getElementById('unlock-pin').value;
                 const encryptedDataStr = localStorage.getItem('encryptedToken');
-                if(!pin) return alert("PIN Required");
+                if(!pin) return;
                 
                 try {
-                    status.innerText = "Decrypting...";
+                    status.innerText = "Processing...";
                     const encryptedData = JSON.parse(encryptedDataStr);
                     const token = await decryptData(encryptedData, pin);
                     
-                    status.innerText = "Fetching from TRMNL...";
+                    status.innerText = "Requesting image...";
                     const finalUrl = `${TRMNL_API}${token}?t=${Date.now()}`; 
                     
-                    const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl));
-                    if (!response.ok) throw new Error(`Proxy error ${response.status}`);
+                    // The Header Fix: Explicitly ask for image types
+                    const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl), {
+                        headers: { 'Accept': 'image/png,image/jpeg,image/*;q=0.8' }
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     
                     const blob = await response.blob();
-                    if (!blob.type.startsWith('image/')) throw new Error("Not an image");
+                    if (!blob.type.startsWith('image/')) throw new Error("Server returned non-image data");
 
                     const objectURL = URL.createObjectURL(blob);
-                    displayArea.innerHTML = `<img src="${objectURL}" alt="TRMNL Display">`;
-                    status.innerText = "Last Sync: " + new Date().toLocaleTimeString();
+                    displayArea.innerHTML = `<img src="${objectURL}" alt="TRMNL">`;
+                    status.innerText = "Updated: " + new Date().toLocaleTimeString();
                     status.style.color = "#4CAF50";
                 } catch (e) {
-                    status.innerText = "Error: Check PIN or Proxy";
+                    console.error(e);
+                    status.innerText = "Error: Invalid PIN or Connection";
                     status.style.color = "#ff5252";
                 }
             };
 
             document.getElementById('settings-toggle').onclick = () => {
-                if(confirm("Reset app?")) {
+                if(confirm("Wipe all data and reset?")) {
                     localStorage.clear();
                     location.reload();
                 }
             };
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js').catch(() => {});
+            }
         })();
     </script>
 </body>
