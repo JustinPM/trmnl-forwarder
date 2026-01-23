@@ -3,62 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRMNL Viewer</title>
+    <title>TRMNL Secure PWA</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; background: #000; color: #fff; }
-        .container { max-width: 500px; margin: 0 auto; background: #111; padding: 20px; border-radius: 16px; border: 1px solid #222; }
-        #display-area { margin-top: 20px; border-radius: 8px; overflow: hidden; background: #000; min-height: 280px; display: flex; align-items: center; justify-content: center; border: 1px solid #333; }
-        img { width: 100%; height: auto; display: block; }
-        .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
-        input { padding: 14px; border-radius: 8px; font-size: 16px; background: #222; color: white; border: 1px solid #444; }
-        button { padding: 14px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 8px; font-weight: bold; }
+        body { font-family: -apple-system, system-ui, sans-serif; text-align: center; padding: 20px; background: #000; color: #fff; margin: 0; }
+        .container { max-width: 500px; margin: 20px auto; background: #111; padding: 25px; border-radius: 20px; border: 1px solid #222; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #display-area { margin-top: 20px; border-radius: 12px; overflow: hidden; background: #050505; min-height: 300px; display: flex; align-items: center; justify-content: center; border: 1px solid #333; position: relative; }
+        img { width: 100%; height: auto; display: block; image-rendering: auto; }
+        .controls { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
+        input { padding: 16px; border-radius: 10px; font-size: 16px; background: #1a1a1a; color: white; border: 1px solid #333; outline: none; transition: border 0.2s; }
+        input:focus { border-color: #555; }
+        button { padding: 16px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 10px; font-weight: bold; font-size: 16px; transition: transform 0.1s; }
+        button:active { transform: scale(0.98); background: #eee; }
         .hidden { display: none; }
         #status { font-size: 13px; margin-top: 15px; color: #666; }
-        .build-tag { font-size: 10px; color: #222; margin-top: 40px; letter-spacing: 2px; }
-        #reset-link { margin-top: 20px; font-size: 11px; color: #333; cursor: pointer; text-decoration: underline; }
+        .build-tag { font-size: 10px; color: #222; margin-top: 40px; letter-spacing: 2px; font-weight: bold; }
+        #reset-link { margin-top: 25px; font-size: 11px; color: #333; cursor: pointer; text-decoration: underline; text-transform: uppercase; }
+        .limit-info { font-size: 10px; color: #444; margin-top: 5px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>TRMNL</h1>
+        <h1 style="margin-top:0; letter-spacing:-1px;">TRMNL</h1>
         
         <div id="setup-section" class="hidden">
-            <p style="color:#888">Private API Setup</p>
+            <p style="color:#888; margin-bottom: 20px;">Private API Configuration</p>
             <div class="controls">
-                <input type="text" id="token-input" placeholder="Access Token (API Key)">
-                <input type="password" id="pin-input" placeholder="Set Security PIN">
-                <button id="save-btn">Save Encrypted</button>
+                <input type="text" id="token-input" placeholder="TRMNL Access Token">
+                <input type="password" id="pin-input" placeholder="Create Security PIN">
+                <button id="save-btn">Encrypt & Save</button>
             </div>
         </div>
 
         <div id="main-section">
-            <div id="display-area"><p id="status-text" style="color:#222">LOCKED</p></div>
+            <div id="display-area">
+                <p id="status-text" style="color:#222; font-weight: bold; letter-spacing: 2px;">ENCRYPTED</p>
+            </div>
             <div class="controls">
                 <input type="password" id="unlock-pin" placeholder="Enter PIN">
                 <button id="fetch-btn">Update Display</button>
             </div>
-            <div id="status">Build V8 (JSON Parse Mode)</div>
+            <div id="status">Ready</div>
+            <div class="limit-info">CORS Limit: 20 req/min</div>
         </div>
         
-        <p id="reset-link">Reset App Data</p>
-        <div class="build-tag">BUILD: 2026.01.22-V8</div>
+        <p id="reset-link">Reset Credentials</p>
+        <div class="build-tag">BUILD: 2026.01.22-V9-DIRECT</div>
     </div>
 
     <script>
-        // --- CRYPTO ---
+        // --- CRYPTO ENGINE ---
         async function deriveKey(pin) {
             const encoder = new TextEncoder();
             const baseKey = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]);
             return crypto.subtle.deriveKey(
-                { name: "PBKDF2", salt: encoder.encode("trmnl-v8-salt"), iterations: 100000, hash: "SHA-256" },
+                { name: "PBKDF2", salt: encoder.encode("trmnl-v9-static-salt"), iterations: 100000, hash: "SHA-256" },
                 baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
             );
         }
 
         async function decryptData(encrypted, pin) {
             const key = await deriveKey(pin);
-            return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(encrypted.iv) }, key, new Uint8Array(encrypted.data)));
+            const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(encrypted.iv) }, key, new Uint8Array(encrypted.data));
+            return new TextDecoder().decode(decrypted);
         }
 
         async function encryptData(text, pin) {
@@ -68,7 +75,7 @@
             return { iv: Array.from(iv), data: Array.from(new Uint8Array(ciphertext)) };
         }
 
-        // --- APP ---
+        // --- APP ENGINE ---
         (async () => {
             const setup = document.getElementById('setup-section');
             const main = document.getElementById('main-section');
@@ -83,37 +90,36 @@
             document.getElementById('save-btn').onclick = async () => {
                 const token = document.getElementById('token-input').value.trim();
                 const pin = document.getElementById('pin-input').value;
-                if(!token || !pin) return alert("All fields required");
-                const encrypted = await encryptData(token, pin);
-                localStorage.setItem('creds', JSON.stringify(encrypted));
-                location.reload();
+                if(!token || !pin) return alert("Please fill in both fields");
+                try {
+                    const encrypted = await encryptData(token, pin);
+                    localStorage.setItem('creds', JSON.stringify(encrypted));
+                    location.reload();
+                } catch (e) { alert("Encryption Error"); }
             };
 
             document.getElementById('fetch-btn').onclick = async () => {
                 const pin = document.getElementById('unlock-pin').value;
                 if(!pin) return;
                 try {
-                    status.innerText = "Processing...";
+                    status.innerText = "Processing PIN...";
                     const token = await decryptData(JSON.parse(localStorage.getItem('creds')), pin);
                     
-                    // Proxy call to the API endpoint
+                    const proxyBase = 'https://www.cors-anywhere.com/';
                     const apiEndpoint = 'https://usetrmnl.com/api/display';
-                    const proxyUrl = `https://cors-anywhere.com/${apiEndpoint}`;
                     
-                    status.innerText = "Requesting JSON...";
-                    const response = await fetch(proxyUrl, {
+                    status.innerText = "Connecting to TRMNL...";
+                    const response = await fetch(proxyBase + apiEndpoint, {
                         headers: { 'access-token': token }
                     });
                     
-                    if (response.status === 403) throw new Error("Proxy access required. Visit cors-anywhere.com/corsdemo");
-                    if (!response.ok) throw new Error(`API Error: ${response.status}`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     
                     const data = await response.json();
-                    if (!data.image_url) throw new Error("No image_url in response");
+                    if (!data.image_url) throw new Error("No screen image URL found.");
 
-                    status.innerText = "Downloading Image...";
-                    // Fetch the actual image using the URL provided in the JSON
-                    const imgRes = await fetch(`https://cors-anywhere.com/${data.image_url}`);
+                    status.innerText = "Downloading Dashboard...";
+                    const imgRes = await fetch(proxyBase + data.image_url);
                     const blob = await imgRes.blob();
                     
                     displayArea.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="TRMNL Screen">`;
@@ -122,11 +128,3 @@
                 } catch (e) {
                     status.innerText = "Error: " + e.message;
                     status.style.color = "#ff5252";
-                }
-            };
-
-            document.getElementById('reset-link').onclick = () => { if(confirm("Wipe App?")) { localStorage.clear(); location.reload(); } };
-        })();
-    </script>
-</body>
-</html>
