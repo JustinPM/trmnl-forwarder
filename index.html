@@ -3,22 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRMNL Secure Viewer</title>
+    <title>TRMNL Viewer</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        body { font-family: -apple-system, system-ui, sans-serif; text-align: center; padding: 20px; background: #111; color: #eee; }
+        body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; background: #111; color: #eee; }
         .container { max-width: 500px; margin: 0 auto; background: #222; padding: 20px; border-radius: 12px; border: 1px solid #333; }
         #display-area { margin-top: 20px; border-radius: 8px; overflow: hidden; background: #000; min-height: 250px; display: flex; align-items: center; justify-content: center; border: 1px solid #444; }
-        img { width: 100%; height: auto; display: block; image-rendering: auto; }
+        img { width: 100%; height: auto; display: block; }
         .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 15px; }
-        input { padding: 14px; border: 1px solid #444; border-radius: 8px; font-size: 16px; background: #333; color: white; outline: none; }
-        input:focus { border-color: #666; }
-        button { padding: 14px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; }
-        button:active { background: #ccc; }
+        input { padding: 14px; border: 1px solid #444; border-radius: 8px; font-size: 16px; background: #333; color: white; }
+        button { padding: 14px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 8px; font-weight: bold; }
         .hidden { display: none; }
-        #settings-toggle { margin-top: 25px; font-size: 11px; color: #666; text-decoration: underline; cursor: pointer; text-transform: uppercase; }
-        #status { font-size: 13px; margin-top: 10px; color: #aaa; min-height: 1.2em; }
+        #status { font-size: 13px; margin-top: 10px; color: #aaa; }
         .build-tag { font-size: 10px; color: #444; margin-top: 40px; text-transform: uppercase; letter-spacing: 2px; }
+        #settings-toggle { margin-top: 20px; font-size: 11px; color: #555; cursor: pointer; text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -27,27 +25,25 @@
         <h1>TRMNL</h1>
         
         <div id="setup-section" class="hidden">
-            <p>Paste your TRMNL Display Token</p>
+            <p>Enter TRMNL Access Token</p>
             <div class="controls">
                 <input type="text" id="token-input" placeholder="">
-                <input type="password" id="pin-input" placeholder="Create a Security PIN">
+                <input type="password" id="pin-input" placeholder="Security PIN">
                 <button id="save-btn">Save Encrypted</button>
             </div>
         </div>
 
         <div id="main-section">
-            <div id="display-area">
-                <p id="placeholder-text" style="color:#555">Locked</p>
-            </div>
+            <div id="display-area"><p id="status-text" style="color:#444">Ready</p></div>
             <div class="controls">
                 <input type="password" id="unlock-pin" placeholder="Enter PIN">
                 <button id="fetch-btn">Update Display</button>
             </div>
-            <div id="status">Build Ready</div>
+            <div id="status">Build V5 Ready</div>
         </div>
 
         <p id="settings-toggle">Reset App</p>
-        <div class="build-tag">Build: 2026.01.22-FINAL-CORS</div>
+        <div class="build-tag">Build: 2026.01.22-V5-DEFENSIVE</div>
     </div>
 
     <script>
@@ -55,9 +51,8 @@
         async function deriveKey(pin) {
             const encoder = new TextEncoder();
             const baseKey = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]);
-            const salt = encoder.encode("trmnl-v4-salt"); 
             return crypto.subtle.deriveKey(
-                { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+                { name: "PBKDF2", salt: encoder.encode("trmnl-v5-salt"), iterations: 100000, hash: "SHA-256" },
                 baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
             );
         }
@@ -65,24 +60,18 @@
         async function encryptData(text, pin) {
             const key = await deriveKey(pin);
             const iv = crypto.getRandomValues(new Uint8Array(12));
-            const encoded = new TextEncoder().encode(text);
-            const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+            const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(text));
             return { iv: Array.from(iv), data: Array.from(new Uint8Array(ciphertext)) };
         }
 
         async function decryptData(encrypted, pin) {
             const key = await deriveKey(pin);
-            const iv = new Uint8Array(encrypted.iv);
-            const data = new Uint8Array(encrypted.data);
-            const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+            const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(encrypted.iv) }, key, new Uint8Array(encrypted.data));
             return new TextDecoder().decode(decrypted);
         }
 
         // --- APP ENGINE ---
         (async () => {
-            const PROXY_URL = 'https://corsproxy.io/?url='; 
-            const TRMNL_API = 'https://usetrmnl.com/api/display/'; 
-
             const setupSection = document.getElementById('setup-section');
             const mainSection = document.getElementById('main-section');
             const status = document.getElementById('status');
@@ -94,14 +83,17 @@
             }
 
             document.getElementById('save-btn').onclick = async () => {
-                const token = document.getElementById('token-input').value.trim();
+                let token = document.getElementById('token-input').value.trim();
+                // Strip leading slash if user included it
+                if (token.startsWith('/')) token = token.substring(1);
+                
                 const pin = document.getElementById('pin-input').value;
-                if(!token || !pin) return alert("All fields required");
+                if(!token || !pin) return alert("Fields required");
                 try {
                     const encrypted = await encryptData(token, pin);
                     localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
                     location.reload();
-                } catch (e) { alert("Encryption Error"); }
+                } catch (e) { alert("Error saving"); }
             };
 
             document.getElementById('fetch-btn').onclick = async () => {
@@ -110,44 +102,30 @@
                 if(!pin) return;
                 
                 try {
-                    status.innerText = "Processing...";
-                    const encryptedData = JSON.parse(encryptedDataStr);
-                    const token = await decryptData(encryptedData, pin);
+                    status.innerText = "Decrypting...";
+                    const token = await decryptData(JSON.parse(encryptedDataStr), pin);
                     
-                    status.innerText = "Requesting image...";
-                    const finalUrl = `${TRMNL_API}${token}?t=${Date.now()}`; 
+                    status.innerText = "Fetching Image...";
+                    // Using the simplest possible proxy format
+                    const target = `https://usetrmnl.com/api/display/${token}?t=${Date.now()}`;
+                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(target)}`;
                     
-                    // The Header Fix: Explicitly ask for image types
-                    const response = await fetch(PROXY_URL + encodeURIComponent(finalUrl), {
-                        headers: { 'Accept': 'image/png,image/jpeg,image/*;q=0.8' }
-                    });
-                    
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const response = await fetch(proxyUrl);
+                    if (!response.ok) throw new Error(`${response.status}`);
                     
                     const blob = await response.blob();
-                    if (!blob.type.startsWith('image/')) throw new Error("Server returned non-image data");
-
                     const objectURL = URL.createObjectURL(blob);
                     displayArea.innerHTML = `<img src="${objectURL}" alt="TRMNL">`;
-                    status.innerText = "Updated: " + new Date().toLocaleTimeString();
+                    status.innerText = "Sync: " + new Date().toLocaleTimeString();
                     status.style.color = "#4CAF50";
                 } catch (e) {
-                    console.error(e);
-                    status.innerText = "Error: Invalid PIN or Connection";
+                    status.innerText = "Error: " + e.message + " (Check PIN or Token)";
                     status.style.color = "#ff5252";
                 }
             };
 
-            document.getElementById('settings-toggle').onclick = () => {
-                if(confirm("Wipe all data and reset?")) {
-                    localStorage.clear();
-                    location.reload();
-                }
-            };
-
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('sw.js').catch(() => {});
-            }
+            document.getElementById('settings-toggle').onclick = () => { if(confirm("Reset?")) { localStorage.clear(); location.reload(); } };
+            if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
         })();
     </script>
 </body>
