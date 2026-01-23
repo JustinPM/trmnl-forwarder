@@ -3,47 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRMNL Viewer</title>
+    <title>TRMNL Private Viewer</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; background: #111; color: #eee; }
-        .container { max-width: 500px; margin: 0 auto; background: #222; padding: 20px; border-radius: 12px; border: 1px solid #333; }
-        #display-area { margin-top: 20px; border-radius: 8px; overflow: hidden; background: #000; min-height: 250px; display: flex; align-items: center; justify-content: center; border: 1px solid #444; }
+        body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; background: #000; color: #fff; }
+        .container { max-width: 500px; margin: 0 auto; background: #1a1a1a; padding: 20px; border-radius: 16px; border: 1px solid #333; }
+        #display-area { margin-top: 20px; border-radius: 8px; overflow: hidden; background: #000; min-height: 280px; display: flex; align-items: center; justify-content: center; border: 1px solid #444; }
         img { width: 100%; height: auto; display: block; }
-        .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 15px; }
-        input { padding: 14px; border: 1px solid #444; border-radius: 8px; font-size: 16px; background: #333; color: white; }
-        button { padding: 14px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 8px; font-weight: bold; }
+        .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+        input { padding: 14px; border: 1px solid #444; border-radius: 8px; font-size: 16px; background: #2a2a2a; color: white; border: 1px solid #444; }
+        button { padding: 14px; cursor: pointer; background: #fff; color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; }
         .hidden { display: none; }
-        #status { font-size: 13px; margin-top: 10px; color: #aaa; }
-        .build-tag { font-size: 10px; color: #444; margin-top: 40px; text-transform: uppercase; letter-spacing: 2px; }
-        #settings-toggle { margin-top: 20px; font-size: 11px; color: #555; cursor: pointer; text-decoration: underline; }
+        #status { font-size: 13px; margin-top: 15px; color: #888; }
+        .build-tag { font-size: 10px; color: #333; margin-top: 40px; text-transform: uppercase; letter-spacing: 2px; }
+        #reset-link { margin-top: 20px; font-size: 11px; color: #444; cursor: pointer; text-decoration: underline; }
     </style>
 </head>
 <body>
-
     <div class="container">
         <h1>TRMNL</h1>
         
         <div id="setup-section" class="hidden">
-            <p>Enter TRMNL Access Token</p>
+            <p style="color:#aaa">Private API Credentials</p>
             <div class="controls">
-                <input type="text" id="token-input" placeholder="">
-                <input type="password" id="pin-input" placeholder="Security PIN">
-                <button id="save-btn">Save Encrypted</button>
+                <input type="text" id="token-input" placeholder="Access Token (from TRMNL)">
+                <input type="text" id="id-input" placeholder="Screen ID (MAC Address)">
+                <input type="password" id="pin-input" placeholder="Set a Security PIN">
+                <button id="save-btn">Encrypt & Save</button>
             </div>
         </div>
 
         <div id="main-section">
-            <div id="display-area"><p id="status-text" style="color:#444">Ready</p></div>
+            <div id="display-area"><p id="status-text" style="color:#333">Enter PIN to Sync</p></div>
             <div class="controls">
-                <input type="password" id="unlock-pin" placeholder="Enter PIN">
-                <button id="fetch-btn">Update Display</button>
+                <input type="password" id="unlock-pin" placeholder="Security PIN">
+                <button id="fetch-btn">Fetch Latest Screen</button>
             </div>
-            <div id="status">Build V5 Ready</div>
+            <div id="status">Build V7.1 (API Docs Compliant)</div>
         </div>
-
-        <p id="settings-toggle">Reset App</p>
-        <div class="build-tag">Build: 2026.01.22-V5-DEFENSIVE</div>
+        
+        <p id="reset-link">Wipe App Data</p>
+        <div class="build-tag">Build: 2026.01.22-V7.1</div>
     </div>
 
     <script>
@@ -52,9 +52,15 @@
             const encoder = new TextEncoder();
             const baseKey = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]);
             return crypto.subtle.deriveKey(
-                { name: "PBKDF2", salt: encoder.encode("trmnl-v5-salt"), iterations: 100000, hash: "SHA-256" },
+                { name: "PBKDF2", salt: encoder.encode("trmnl-v7-salt"), iterations: 100000, hash: "SHA-256" },
                 baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
             );
+        }
+
+        async function decryptData(encrypted, pin) {
+            const key = await deriveKey(pin);
+            const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(encrypted.iv) }, key, new Uint8Array(encrypted.data));
+            return new TextDecoder().decode(decrypted);
         }
 
         async function encryptData(text, pin) {
@@ -64,68 +70,70 @@
             return { iv: Array.from(iv), data: Array.from(new Uint8Array(ciphertext)) };
         }
 
-        async function decryptData(encrypted, pin) {
-            const key = await deriveKey(pin);
-            const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(encrypted.iv) }, key, new Uint8Array(encrypted.data));
-            return new TextDecoder().decode(decrypted);
-        }
-
-        // --- APP ENGINE ---
+        // --- APP LOGIC ---
         (async () => {
-            const setupSection = document.getElementById('setup-section');
-            const mainSection = document.getElementById('main-section');
+            const setup = document.getElementById('setup-section');
+            const main = document.getElementById('main-section');
             const status = document.getElementById('status');
             const displayArea = document.getElementById('display-area');
 
-            if (!localStorage.getItem('encryptedToken')) {
-                setupSection.classList.remove('hidden');
-                mainSection.classList.add('hidden');
+            if (!localStorage.getItem('creds')) {
+                setup.classList.remove('hidden');
+                main.classList.add('hidden');
             }
 
             document.getElementById('save-btn').onclick = async () => {
-                let token = document.getElementById('token-input').value.trim();
-                // Strip leading slash if user included it
-                if (token.startsWith('/')) token = token.substring(1);
-                
+                const token = document.getElementById('token-input').value.trim();
+                const devId = document.getElementById('id-input').value.trim();
                 const pin = document.getElementById('pin-input').value;
-                if(!token || !pin) return alert("Fields required");
-                try {
-                    const encrypted = await encryptData(token, pin);
-                    localStorage.setItem('encryptedToken', JSON.stringify(encrypted));
-                    location.reload();
-                } catch (e) { alert("Error saving"); }
+                if(!token || !devId || !pin) return alert("Fill all fields");
+                const encrypted = await encryptData(JSON.stringify({token, devId}), pin);
+                localStorage.setItem('creds', JSON.stringify(encrypted));
+                location.reload();
             };
 
             document.getElementById('fetch-btn').onclick = async () => {
                 const pin = document.getElementById('unlock-pin').value;
-                const encryptedDataStr = localStorage.getItem('encryptedToken');
                 if(!pin) return;
-                
                 try {
                     status.innerText = "Decrypting...";
-                    const token = await decryptData(JSON.parse(encryptedDataStr), pin);
+                    const {token, devId} = JSON.parse(await decryptData(JSON.parse(localStorage.getItem('creds')), pin));
                     
-                    status.innerText = "Fetching Image...";
-                    // Using the simplest possible proxy format
-                    const target = `https://usetrmnl.com/api/display/${token}?t=${Date.now()}`;
-                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(target)}`;
+                    status.innerText = "Requesting Metadata...";
+                    // Proxy call to the API endpoint
+                    const apiEndpoint = 'https://usetrmnl.com/api/display';
+                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiEndpoint)}`;
                     
-                    const response = await fetch(proxyUrl);
-                    if (!response.ok) throw new Error(`${response.status}`);
+                    const response = await fetch(proxyUrl, {
+                        method: 'GET',
+                        headers: { 
+                            'Access-Token': token, 
+                            'ID': devId,
+                            'Accept': 'application/json'
+                        }
+                    });
                     
-                    const blob = await response.blob();
-                    const objectURL = URL.createObjectURL(blob);
-                    displayArea.innerHTML = `<img src="${objectURL}" alt="TRMNL">`;
-                    status.innerText = "Sync: " + new Date().toLocaleTimeString();
+                    if (!response.ok) throw new Error(`API returned ${response.status}`);
+                    const data = await response.json();
+                    
+                    if (!data.image_url) throw new Error("No image URL provided by TRMNL");
+
+                    status.innerText = "Downloading Image...";
+                    // Step 2: Fetch the actual image using the URL provided in the JSON
+                    const imgProxy = `https://corsproxy.io/?${encodeURIComponent(data.image_url)}`;
+                    const imgRes = await fetch(imgProxy);
+                    const blob = await imgRes.blob();
+                    
+                    displayArea.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="TRMNL">`;
+                    status.innerText = "Last Updated: " + new Date().toLocaleTimeString();
                     status.style.color = "#4CAF50";
                 } catch (e) {
-                    status.innerText = "Error: " + e.message + " (Check PIN or Token)";
+                    status.innerText = "Error: " + e.message;
                     status.style.color = "#ff5252";
                 }
             };
 
-            document.getElementById('settings-toggle').onclick = () => { if(confirm("Reset?")) { localStorage.clear(); location.reload(); } };
-            if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+            document.getElementById('reset-link').onclick = () => { if(confirm("Clear credentials?")) { localStorage.clear(); location.reload(); } };
         })();
     </script>
 </body>
