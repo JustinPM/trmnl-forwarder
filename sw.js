@@ -1,10 +1,12 @@
-const CACHE_NAME = 'trmnl-v8';
+const CACHE_NAME = 'trmnl-v9';
+const ASSETS = ['./', './index.html', './manifest.json'];
+
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(['./', './index.html', './manifest.json'])));
+  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
 });
 
 self.addEventListener('fetch', (e) => {
-  // Always let TRMNL and Proxy requests bypass the service worker cache
+  // Completely bypass cache for TRMNL and Proxy to avoid stale images
   if (e.request.url.includes('cors-anywhere.com') || e.request.url.includes('usetrmnl.com')) return;
   
   e.respondWith(
